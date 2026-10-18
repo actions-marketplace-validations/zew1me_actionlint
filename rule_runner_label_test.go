@@ -40,11 +40,11 @@ func TestRuleRunnerLabelCheckLabels(t *testing.T) {
 		},
 		{
 			what:   "self-hosted all macOS runner labels",
-			labels: []string{"self-hosted", "macOS", "macOS-latest", "macOS-15"},
+			labels: []string{"self-hosted", "macOS", "macOS-latest", "macOS-26"},
 		},
 		{
 			what:   "self-hosted all Windows runner labels",
-			labels: []string{"self-hosted", "windows", "windows-latest", "windows-2022"},
+			labels: []string{"self-hosted", "windows", "windows-latest", "windows-2025-vs2026"},
 		},
 		{
 			what:   "self-hosted Linux runner in upper case",
@@ -101,11 +101,19 @@ func TestRuleRunnerLabelCheckLabels(t *testing.T) {
 		},
 		{
 			what:   "multiple labels for GH-hosted Windows runner",
-			labels: []string{"windows-latest", "windows-2022"},
+			labels: []string{"windows-latest", "windows-2025-vs2026"},
 		},
 		{
 			what:   "multiple labels for GH-hosted macOS runner",
-			labels: []string{"macos-latest", "macos-15"},
+			labels: []string{"macos-latest", "macos-26"},
+		},
+		{
+			what:   "multiple labels for GH-hosted macOS XL runner",
+			labels: []string{"macos-latest-xlarge", "macos-26-xlarge"},
+		},
+		{
+			what:   "multiple labels for GH-hosted macOS large runner",
+			labels: []string{"macos-latest-large", "macos-26-large"},
 		},
 		{
 			what:   "user-defined labels",
@@ -274,6 +282,21 @@ func TestRuleRunnerLabelCheckLabels(t *testing.T) {
 			errs:   []string{`label "windows-2022" conflicts with label "windows-2025"`},
 		},
 		{
+			what:   "macos-latest no longer points to macOS 15",
+			labels: []string{"macos-latest", "macos-15"},
+			errs:   []string{`label "macos-15" conflicts with label "macos-latest"`},
+		},
+		{
+			what:   "macos-latest-xlarge no longer points to macOS 15",
+			labels: []string{"macos-latest-xlarge", "macos-15-xlarge"},
+			errs:   []string{`label "macos-15-xlarge" conflicts with label "macos-latest-xlarge"`},
+		},
+		{
+			what:   "windows-latest no longer points to Windows Server 2022",
+			labels: []string{"windows-latest", "windows-2022"},
+			errs:   []string{`label "windows-2022" conflicts with label "windows-latest"`},
+		},
+		{
 			what:   "Linux labels explicit version conflict",
 			labels: []string{"ubuntu-24.04", "ubuntu-22.04"},
 			errs:   []string{`label "ubuntu-22.04" conflicts with label "ubuntu-24.04"`},
@@ -333,6 +356,21 @@ func TestRuleRunnerLabelCheckLabels(t *testing.T) {
 			what:   "Windows labels architecture conflict",
 			labels: []string{"windows-2025", "windows-11-arm"},
 			errs:   []string{`label "windows-11-arm" conflicts with label "windows-2025"`},
+		},
+		{
+			what:   "Ubuntu 26.04 labels architecture conflict",
+			labels: []string{"ubuntu-26.04", "ubuntu-26.04-arm"},
+			errs:   []string{`label "ubuntu-26.04-arm" conflicts with label "ubuntu-26.04"`},
+		},
+		{
+			what:   "Ubuntu 26.04 labels architecture conflict in reverse order",
+			labels: []string{"ubuntu-26.04-arm", "ubuntu-26.04"},
+			errs:   []string{`label "ubuntu-26.04" conflicts with label "ubuntu-26.04-arm"`},
+		},
+		{
+			what:   "Windows 11 Arm64 image conflict",
+			labels: []string{"windows-11-arm", "windows-11-vs2026-arm"},
+			errs:   []string{`label "windows-11-vs2026-arm" conflicts with label "windows-11-arm"`},
 		},
 		{
 			what:   "macOS XL and normal labels conflict",
@@ -405,6 +443,95 @@ func TestRuleRunnerLabelCheckLabels(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestRuleRunnerLabel2026Images(t *testing.T) {
+	images := []struct {
+		label string
+		os    string
+	}{
+		{"ubuntu-26.04", "linux"},
+		{"ubuntu-26.04-arm", "linux"},
+		{"windows-11-vs2026-arm", "windows"},
+		{"xcode-27", "macos"},
+		{"xcode-27-xlarge", "macos"},
+	}
+	for _, image := range images {
+		t.Run(image.label, func(t *testing.T) {
+			for _, os := range []string{"linux", "windows", "macos"} {
+				rule := NewRuleRunnerLabel()
+				job := &Job{RunsOn: &Runner{Labels: []*String{
+					{Value: os, Pos: &Pos{}},
+					{Value: strings.ToUpper(image.label), Pos: &Pos{}},
+				}}}
+				if err := rule.VisitJobPre(job); err != nil {
+					t.Fatal(err)
+				}
+				want := 1
+				if os == image.os {
+					want = 0
+				}
+				if errs := rule.Errs(); len(errs) != want {
+					t.Errorf("OS %s: want %d errors, got %v", os, want, errs)
+				} else if want == 1 && !strings.Contains(errs[0].Message, "conflicts with label") {
+					t.Errorf("expected conflict, got %v", errs)
+				}
+			}
+		})
+	}
+
+	for _, labels := range [][]string{
+		{"ubuntu-26.04", "ubuntu-26.04-arm"}, // x64 and arm64 are different images
+		{"ubuntu-26.04", "ubuntu-24.04"},
+		{"ubuntu-26.04-arm", "ubuntu-22.04-arm"},
+		{"ubuntu-26.04", "ubuntu-latest"}, // migration starts October 19, after cutoff
+		{"windows-11-vs2026-arm", "windows-2025-vs2026"},
+		{"windows-11-vs2026-arm", "windows-11-arm"}, // separate images until the migration is confirmed
+		{"xcode-27", "macos-26"},                    // now macOS 27, not the preview's original macOS 26
+		{"xcode-27", "macos-26-intel"},
+		{"xcode-27-xlarge", "macos-26-xlarge"},
+		{"xcode-27-xlarge", "macos-15-intel"},
+		{"xcode-27", "xcode-27-xlarge"}, // distinct runner sizes
+	} {
+		t.Run(strings.Join(labels, "/"), func(t *testing.T) {
+			rule := NewRuleRunnerLabel()
+			job := &Job{RunsOn: &Runner{Labels: []*String{
+				{Value: labels[0], Pos: &Pos{}},
+				{Value: labels[1], Pos: &Pos{}},
+			}}}
+			if err := rule.VisitJobPre(job); err != nil {
+				t.Fatal(err)
+			}
+			if errs := rule.Errs(); len(errs) != 1 || !strings.Contains(errs[0].Message, "conflicts with label") {
+				t.Fatalf("expected one conflict, got %v", errs)
+			}
+		})
+	}
+}
+
+// Follow `-latest` migrations completed by the October 18 cutoff, and keep lifecycle changes
+// scheduled after it (ubuntu-latest moving to 26.04, macOS 14 retirement) out of this data update.
+func TestRuleRunnerLabel2026Cutoff(t *testing.T) {
+	for label, want := range map[string]runnerOSCompat{
+		"ubuntu-latest":          compatUbuntu2404,
+		"ubuntu-latest-4-cores":  compatUbuntu2404,
+		"ubuntu-latest-8-cores":  compatUbuntu2404,
+		"ubuntu-latest-16-cores": compatUbuntu2404,
+		"windows-latest":         compatWindows2025VS2026, // windows-2025 with VS2026 since June 15, 2026
+		"windows-latest-8-cores": compatWindows2025VS2026,
+		"macos-latest":           compatMacOS260, // migration to macOS 26 completed July 22, 2026
+		"macos-latest-large":     compatMacOS260L,
+		"macos-latest-xlarge":    compatMacOS260XL,
+		"macos-14":               compatMacOS140,
+		"macos-14-large":         compatMacOS140L,
+		"macos-14-xlarge":        compatMacOS140XL,
+		"windows-11-vs2026-arm":  compatWindows11VS2026Arm, // windows-11-arm migration not confirmed complete
+		"windows-11-arm":         compatWindows11Arm,
+	} {
+		if got := defaultRunnerOSCompats[label]; got != want {
+			t.Errorf("%s: want compatibility %d, got %d", label, want, got)
+		}
 	}
 }
 
