@@ -1,5 +1,5 @@
 name: actionlint-zew1me
-description: Run actionlint from the zew1me fork on GitHub Actions workflows.
+description: Run actionlint, validates Github Workflow Action syntax.
 author: zew1me
 branding:
   icon: check
