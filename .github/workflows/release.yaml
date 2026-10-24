@@ -20,8 +20,8 @@ jobs:
       id-token: write
       attestations: write
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7
         with:
           go-version: '1.26'
           check-latest: true
@@ -40,7 +40,7 @@ jobs:
       - name: Post-release download check
         run: bash ./scripts/download-actionlint.bash "$VERSION"
       - name: Clone nested repository to make version bump commit
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7.0.1
         with:
           path: ./tmp-actionlint-for-update-ver
           ref: main
@@ -66,7 +66,7 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7.0.1
       - name: Get tag name
         id: tag
         run: |
